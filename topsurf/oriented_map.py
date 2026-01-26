@@ -1,14 +1,11 @@
 r"""
-Oriented maps (possibly with boundary data)
+Combinatorial maps on oriented surfaces
 
-An oriented map is a data structure that describes a cell decomposition of an
-oriented surface.
-
-Common base claas for class:`~veerer.triangulation.Triangulations` and
-:class:`~veerer.strebel_graph.StrebelGraph`
+The main class in this module is :class:`OrientedMap` which describes a
+cell decomposition of an oriented surface.
 """
 # ****************************************************************************
-#  This file is part of veerer
+#  This file is part of topsurf
 #
 #       Copyright (C) 2018 Mark Bell
 #                     2018-2026 Vincent Delecroix
@@ -35,10 +32,8 @@ import itertools
 import numbers
 from array import array
 
-# TODO: get rid of sage dependency
 from sage.structure.richcmp import op_LT, op_LE, op_EQ, op_NE, op_GT, op_GE, rich_to_bool
 
-# TODO: move Cython permutation in this module
 from topsurf.permutation import (perm_init, perm_check, perm_cycles, perm_on_array, perm_on_edge_array,
                           perm_invert, perm_conjugate, perm_cycle_string, perm_cycles_lengths,
                           perm_cycles_to_string, perm_on_list, perm_on_edge_list, perm_cycle_type,
@@ -93,13 +88,6 @@ def check_relabelling(arg, ne):
 
 # half-edge versus dart
 
-# Open Mesh introduces "property manager" in order to handle various properties
-# HProp: data attached to each half edge
-# VProp: data attached to each vertex
-# EProp: data attached to each edge
-# FProp: data attached to each face
-
-# TODO: constructor and disjoint union
 # TODO: make sure to remove trailing -1 to make equality consistent
 # TODO: should we maintain num_active_darts, num_active_edges
 
@@ -181,6 +169,14 @@ class OrientedMap:
                 if ii != -1:
                     fp[ii] = i
 
+        # remove trailing -1
+        while vp and vp[-2] == -1:
+            vp.pop()
+            vp.pop()
+        while fp and fp[-2] == -1:
+            fp.pop()
+            fp.pop()
+
         self._vp = vp
         self._fp = fp
         self._mutable = mutable
@@ -221,6 +217,9 @@ class OrientedMap:
         if not perm_check(self._fp, 2 * ne):
             raise error(f"fp is not a permutation: {self._fp}")
 
+        if self._vp and (self._vp[-2] == -1 or self._fp[-2] == -1):
+            raise error("trailing -1 in vertex or face permutation")
+
         for h in range(2 * ne):
             if (self._vp[h] == -1) != (self._fp[h] == -1):
                 raise ValueError(f"vp (={self._vp}) and fp (={self._fp}) with different domains")
@@ -240,15 +239,14 @@ class OrientedMap:
         self._fp.extend([-1] * (n_max - self._n))
 
     def __getstate__(self):
-        a.append(self._mutable)
+        a = [self._mutable]
         a.extend(self._fp)
         return a
 
     def __setstate__(self, arg):
         # We do not know how many slots we have in data
-        n = 2 * ne
-        self._mutable = arg[1]
-        self._fp = array('i', arg[2:])
+        self._mutable = arg[0]
+        self._fp = array('i', arg[1:])
         n = len(self._fp)
 
         self._vp = array('i', [-1] * n)
@@ -293,6 +291,10 @@ class OrientedMap:
         if self._mutable:
             raise ValueError("mutable map; use the method .set_immutable() to make it immutable")
 
+    def _assert_connected(self):
+        if not self.is_connected():
+            raise ValueError("non-connected map")
+
     def __hash__(self):
         self._assert_immutable()
         return array_hash(self._vp)
@@ -323,19 +325,28 @@ class OrientedMap:
             ValueError: invalid half-edge h=1; the underlying edges is folded
         """
         if not isinstance(h, numbers.Integral):
-            raise TypeError('invalid half-edge {}'.format(h))
+            raise TypeError(f"invalid half-edge {h} of type {type(h).__name__}")
         h = int(h)
-        if h < 0 or h >= 2 * self._ne:
-            raise ValueError(f"half-edge number out of range h={h}")
+        if h < 0 or h >= len(self._vp):
+            raise ValueError(f"half-edge number out of range (={h})")
         if self._vp[h] == -1:
-            raise ValueError(f"invalid half-edge h={h}; the underlying edges is folded")
+            raise ValueError(f"invalid half-edge (={h}); the underlying edge is folded")
         return h
+
+    def _check_half_edge_or_minus_one(self, h):
+        if not isinstance(h, numbers.Integral):
+            raise TypeError(f"invalid half-edge {h} of type {type(h).__name__}")
+        h = int(h)
+        if h < -1 or h >= len(self._vp):
+            raise ValueError(f"half-edge number out of range (={h})")
+        if h >= 0 and self._vp[h] == -1:
+            raise ValueError(f"invalid half-edge (={h}); the underlying edge is folded")
 
     def _check_edge(self, e):
         if not isinstance(e, numbers.Integral):
             raise TypeError(f"invalid edge {e}")
         e = int(e)
-        if e < 0 or e >= self._ne:
+        if e < 0 or 2 * e >= len(self._vp):
             raise ValueError(f"edge number out of range e={e}")
         if self._vp[2 * e] == -1:
             raise ValueError(f"inactive edge e={e}")
@@ -372,10 +383,10 @@ class OrientedMap:
         return '_'.join(data)
 
     def __eq__(self, other):
-        return self._ne == other._ne and self._fp == other._fp # and self._half_edges_data == other._half_edges_data and self._edges_data == other._edges_data
+        return self._vp == other._vp
 
     def __ne__(self, other):
-        return self._ne != other._ne or self._fp != other._fp # or self._half_edges_data != other._half_edges_data or self._edges_data != other._edges_data
+        return self._vp != other._vp
 
     def _cmp_(self, other):
         r"""
@@ -493,7 +504,6 @@ class OrientedMap:
             return self
 
         m = OrientedMap.__new__(OrientedMap)
-        m._ne = self._ne
         m._fp = self._fp[:]
         m._vp = self._vp[:]
         m._mutable = mutable
@@ -577,7 +587,7 @@ class OrientedMap:
             sage: OrientedMap(fp="(0,1,2)").edge_permutation()
             array('i', [0, -1, 2, -1, 4, -1])
         """
-        return array('i', [self._ep(h) for h in range(2 * self._ne)])
+        return array('i', [self._ep(h) for h in range(len(self._vp))])
 
     def next_in_edge(self, h, check=True):
         r"""
@@ -645,7 +655,7 @@ class OrientedMap:
             sage: m.next_in_face(1)
             Traceback (most recent call last):
             ...
-            ValueError: invalid half-edge h=1; the underlying edges is folded
+            ValueError: invalid half-edge (=1); the underlying edges is folded
         """
         if check:
             h = self._check_half_edge(h)
@@ -780,26 +790,18 @@ class OrientedMap:
 
     def edges(self):
         r"""
-        Return the list of edges as lists of half-edges
+        Return the list of edge indices.
 
         EXAMPLES::
 
             sage: from topsurf import OrientedMap
 
             sage: OrientedMap(fp="(0,1,2)(3,4,5)(~0,~3,6)").edges()
-            [[0, 1], [2], [4], [6, 7], [8], [10], [12]]
             sage: OrientedMap(fp="(1,2)(3,5)(~3,6)").edges()
-            [[2], [4], [6, 7], [10], [12]]
         """
-        ans = []
         for e in range(len(self._vp) // 2):
-            if self._vp[2 * e] == -1:
-                continue
-            elif self._vp[2 * e + 1] == -1:
-                ans.append([2 * e])
-            else:
-                ans.append([2 * e, 2 * e + 1])
-        return ans
+            if self._vp[2 * e] != -1:
+                yield e
 
     def vertices(self):
         r"""
@@ -998,67 +1000,60 @@ class OrientedMap:
 
         EXAMPLES::
 
-            sage: from veerer import Triangulation, StrebelGraph
+            sage: from topsurf import OrientedMap
 
-        A sphere::
+        Spheres::
 
-            sage: T = Triangulation("(0,1,2)")
-            sage: T.euler_characteristic()
+            sage: OrientedMap(fp="(0,1,2)").euler_characteristic()
             2
-
-        Disks::
-
-            sage: T = Triangulation("(0:1,~0:1)")
-            sage: T.euler_characteristic()
-            1
-            sage: T = Triangulation("(0:1)")
-            sage: T.euler_characteristic()
-            1
+            sage: OrientedMap(fp="(0,~0)").euler_characteristic()
+            2
+            sage: OrientedMap(fp="(0)").euler_characteristic()
+            2
+            sage: OrientedMap(fp="(0,1,2)(~0)(~1)(~2)").euler_characteristic()
+            2
+            sage: OrientedMap(fp="(0,1,2)(~0,3,4)(~1,~2)(~3,~4)").euler_characteristic()
+            2
 
         A torus::
 
-            sage: T = Triangulation("(0,1,2)(~0,~1,~2)")
-            sage: T.euler_characteristic()
+            sage: m = OrientedMap(fp="(0,1,2)(~0,~1,~2)")
+            sage: m.euler_characteristic()
             0
 
         A genus 2 surface::
 
-            sage: T = Triangulation("(0,1,2)(~2,3,4)(~4,5,6)(~6,~0,7)(~7,~1,8)(~8,~3,~5)")
-            sage: T.euler_characteristic()
+            sage: m = OrientedMap(fp="(0,1,2)(~2,3,4)(~4,5,6)(~6,~0,7)(~7,~1,8)(~8,~3,~5)")
+            sage: m.euler_characteristic()
             -2
 
         A cylinder::
 
-            sage: T = Triangulation("(0,1,2)(~0,3,4)(~1,~2)(~3,~4)", {"~1": 1, "~2": 1, "~3": 1, "~4": 1})
-            sage: T.euler_characteristic()
-            0
-
-        A pair of pants::
-
-            sage: T = Triangulation("(0,1,2)(~0)(~1)(~2)", {"~0": 1, "~1": 1, "~2": 1})
-            sage: T.euler_characteristic()
-            -1
-
-        A Strebel graph example::
-
-            sage: sg = StrebelGraph("(0,1)(~0,2,3)(~1,4,5,6)(~2,7,~3,~5)(~4,8,~6)(~7,~8)")
-            sage: sg.euler_characteristic()
+            sage: m.euler_characteristic()
             0
         """
         return self.num_faces() - self.num_edges() + (self.num_vertices() + self.num_folded_edges())
 
-    def genus(self, connected=True, check=True):
+    def genus(self, connected=True, check=2):
         r"""
         INPUT:
 
         - ``connected`` -- if ``False`` return a tuple if ``True`` and non-connected raises an error
+
+        EXAMPLES::
         """
-        pass
+        if connected:
+            if check >= 2:
+                self._assert_connected()
 
+            char = self.euler_characteristic()
+            two_g = 2 - char
+            assert two_g % 2 == 0
+            return two_g // 2
+        else:
+            # TODO: implement something less costly
+            return [cc.genus() for cc in self.connected_components_submaps(relabel=True)]
 
-# flip: retourner
-# swap: echanger
-# more common in oriented graph is a flip
 
     #############
     # Mutations #
@@ -1099,7 +1094,7 @@ class OrientedMap:
             OrientedMap("(1)(3)(~3)", "(1)(3,~3)")
         """
         if check >= 1:
-            self._check_assert_mutable()
+            self._assert_mutable()
             h0 = self._check_half_edge(h0)
             h1 = self._check_half_edge(h1)
 
@@ -1112,9 +1107,6 @@ class OrientedMap:
         vp[h0], vp[h1] = vp[h1], vp[h0]
         fp[fp0_pre], fp[fp1_pre] = fp[fp1_pre], fp[fp0_pre]
 
-    # check=0: no check
-    # check=1: constant time checks
-    # check=2: linear time checks
     def contract_edge(self, e, check=2):
         r"""
         Contract the edge ``e``.
@@ -1126,14 +1118,14 @@ class OrientedMap:
 
             sage: from topsurf import OrientedMap
 
-            sage: vp = "(0,1,~0,~1)'
-            sage: fp = "(0,1,~0,~1)'
+            sage: vp = "(0,1,~0,~1)"
+            sage: fp = "(0,1,~0,~1)"
 
             sage: vp02 = "(0,2,~0,~1)(1,~2)"
-            sage: fp02 = "(0,2,1,~0,~1,~1)"
+            sage: fp02 = "(0,2,1,~0,~1,~2)"
             sage: m = OrientedMap(vp02, fp02, mutable=True)
-            sage: cm.contract_edge(2)
-            sage: cm == OrientedMap(vp, fp)
+            sage: m.contract_edge(2)
+            sage: m == OrientedMap(vp, fp)
             True
 
             sage: vp01 = "(0,2,~1)(~0,~2,1)"
@@ -1147,19 +1139,60 @@ class OrientedMap:
             sage: fp03 = "(0,1,~0,2,~1,~2)"
             sage: m = OrientedMap(vp03, fp03, mutable=True)
             sage: m.contract_edge(2)
-            sage: m == FatGraph(vp, fp)
+            sage: m == OrientedMap(vp, fp)
             True
 
         Degree 1 vertices::
 
-            sage: m = OrientedMap("(0,1)(~0)(~1)", "(0,~0,1,~1)", mutable=True)
+            sage: m = OrientedMap(vp="(0,1)(~0)(~1)", mutable=True)
+            sage: m.contract_edge(1)
+            sage: m
+            OrientedMap("(0)(~0)", "(0,~0)")
+
+            sage: m = OrientedMap("(0,1)(~0)(~1)", mutable=True)
             sage: m.contract_edge(0)
             sage: m
-            FatGraph("(0)(1)", "(0,1)")
-            sage: m2 = OrientedMap("(0,1)(~0)(~1)", "(0,~0,1,~1)", mutable=True)
-            sage: m2.contract_edge(1)
-            sage: m == m2
-            True
+            OrientedMap("(1)(~1)", "(1,~1)")
+
+            sage: m = OrientedMap(vp="(0,~1)(~0)(1)", mutable=True)
+            sage: m.contract_edge(0)
+            sage: m
+            OrientedMap("(1)(~1)", "(1,~1)")
+
+            sage: m = OrientedMap(vp="(0,~1)(~0)(1)", mutable=True)
+            sage: m.contract_edge(1)
+            sage: m
+            OrientedMap("(0)(~0)", "(0,~0)")
+
+            sage: m = OrientedMap(vp="(0)", mutable=True)
+            sage: m.contract_edge(0)
+            sage: m
+            OrientedMap("", "")
+
+            sage: m = OrientedMap(vp="(0,1)", mutable=True)
+            sage: m.contract_edge(1)
+            sage: m
+            OrientedMap("(0)", "(0)")
+
+            sage: m = OrientedMap(vp="(0,1)", mutable=True)
+            sage: m.contract_edge(0)
+            sage: m
+            OrientedMap("(1)", "(1)")
+
+            sage: m = OrientedMap(vp="(0,~0)", mutable=True)
+            sage: m.contract_edge(0)
+            sage: m
+            OrientedMap("", "")
+
+            sage: m = OrientedMap(vp="(0,~0,1,~1)", mutable=True)
+            sage: m.contract_edge(0)
+            sage: m
+            OrientedMap("(1,~1)", "(1)(~1)")
+
+            sage: m = OrientedMap(vp="(0,1,~1,~0)", mutable=True)
+            sage: m.contract_edge(0)
+            sage: m
+            OrientedMap("(1,~1)", "(1)(~1)")
         """
         if check >= 1:
             self._assert_mutable()
@@ -1170,37 +1203,260 @@ class OrientedMap:
 
         h0 = 2 * e
         h1 = self._ep(h0)
+
         if h0 == h1:
-            # we deactivate h0 and jump over with vp and fp
-            fph_pre = self.previous_in_face(h0)
-            vph_pre = self.previous_at_vertex(h0)
-            if fph_pre != h0:
-                fp[fph_pre] = fp[h0]
-                fp[h0] = -1
-            if vph_pre != h0:
-                vp[vph_pre] = vp[h0]
-                vp[h0] = -1
-        else:
-            vp_h0 = self._ep(vp[h0])
-            vp_h1 = self._ep(vp[h1])
-
-            i0 = vp[h0] ^ 1
-            i1 = vp[h1] ^ 1
-            if fp[h1] == h0:
-                # vertex of degree one
-                vp[fp[h0]] = vp[h1]
-                fp[i1] = fp[h0]
-
-            elif fp[h0] == h1:
-                # vertex of degree one
-                vp[fp[h1]] = vp[h0]
-                fp[i0] = fp[h1]
-
+            # folded edge
+            if fp[h0] == h0:
+                # the vertex at h0 has degree one
+                vp[h0] = fp[h0] = -1
             else:
-                vp[fp[h0]] = vp[h0]
-                vp[fp[h1]] = vp[h1]
-                fp[i0] = fp[h0]
-                fp[i1] = fp[h1]
+                h0_fp_prev = self.previous_in_face(h0)
+                h0_fp_next = self.next_in_face(h0)
+                assert h0 != h0_fp_prev
+                assert h0 != h0_fp_next
+                fp[h0_fp_prev] = h0_fp_next
+
+                h0_vp_prev = self.previous_at_vertex(h0)
+                h0_vp_next = self.next_at_vertex(h0)
+                assert h0 != h0_vp_prev
+                assert h0 != h0_vp_next
+                vp[h0_vp_prev] = h0_vp_next
+
+            vp[h0] = fp[h0] = -1
+
+        else:
+            # non-folded edge
+            h0_vp_prev = self.previous_at_vertex(h0)
+            h0_vp_next = self.next_at_vertex(h0)
+            h1_vp_next = self.next_at_vertex(h1)
+            h0_fp_prev = self.previous_in_face(h0)
+            if h0_fp_prev == h1:
+                h0_fp_prev = self.previous_in_face(h0_fp_prev)
+            h0_fp_next = self.next_in_face(h0)
+            if h0_fp_next == h1:
+                h0_fp_next = self.next_in_face(h0_fp_next)
+
+            h1_vp_prev = self.previous_at_vertex(h1)
+            h1_vp_next = self.next_at_vertex(h1)
+            h1_fp_prev = self.previous_in_face(h1)
+            if h1_fp_prev == h0:
+                h1_fp_prev = self.previous_in_face(h1_fp_prev)
+            h1_fp_next = self.next_in_face(h1)
+            if h1_fp_next == h0:
+                h1_fp_next = self.next_in_face(h1_fp_next)
+
+            if h0 != h0_fp_next:
+                fp[h0_fp_prev] = h0_fp_next
+            if h1 != h1_fp_next:
+                fp[h1_fp_prev] = h1_fp_next
+
+            if h0 != h0_vp_next:
+                if h1 != h1_vp_next:
+                    # vertices at h0 and h1 have degree > 1
+                    vp[h0_vp_prev] = h1_vp_next
+                    vp[h1_vp_prev] = h0_vp_next
+                else:
+                    # vertex at h1 has degree 1 but not h0
+                    vp[h0_vp_prev] = h0_vp_next
+            else:
+                if h1 != h1_vp_next:
+                    # vertex at h0 has degree 1 but not h1
+                    vp[h1_vp_prev] = h1_vp_next
+
+            vp[h0] = vp[h1] = fp[h0] = fp[h1] = -1
+
+        while vp and vp[-2] == -1:
+            vp.pop()
+            vp.pop()
+            fp.pop()
+            fp.pop()
+
+    def delete_edge(self, e, check=2):
+        r"""
+        Delete the edge ``e``.
+
+        EXAMPLES::
+
+            sage: from topsurf import OrientedMap
+
+            sage: vp = "(0,1,~0,~1)"
+            sage: fp = "(0,1,~0,~1)"
+            sage: m = OrientedMap(vp, fp)
+
+            sage: vp20 = "(0,~2,2,1,~0,~1)"
+            sage: fp20 = "(0,1,~0,~1,2)(~2)"
+            sage: m = OrientedMap(vp20, fp20, mutable=True)
+            sage: m.delete_edge(2)
+            sage: m
+
+            sage: vp10 = "(0,2,1,~2,~0,~1)"
+            sage: fp10 = "(0,~2)(~0,~1,2,1)"
+            sage: m = OrientedMap(vp10, fp10, mutable=True)
+            sage: m.delete_edge(2)
+            sage: m
+
+            sage: vp30 = "(0,2,1,~0,~2,~1)"
+            sage: fp30 = "(0,1,~2)(~0,~1,2)"
+            sage: m = OrientedMap(vp30, fp30, mutable=True)
+            sage: m.delete_edge(2)
+            sage: m
+
+            sage: vp00 = "(0,~2,2,1,~0,~1)"
+            sage: fp00 = "(0,1,~0,~1,2)(~2)"
+            sage: m = OrientedMap(vp00, fp00, mutable=True)
+            sage: m.delete_edge(2)
+            sage: m
+
+            sage: vp22 = "(0,1,~2,2,~0,~1)"
+            sage: fp22 = "(0,2,1,~0,~1)(~2)"
+            sage: m = OrientedMap(vp00, fp00, mutable=True)
+            sage: m.delete_edge(2)
+            sage: m
+        """
+        if check >= 1:
+            self._assert_mutable()
+            e = self._check_edge(e)
+
+        vp = self._vp
+        fp = self._fp
+
+        h0 = 2 * e
+        h1 = self._ep(h0)
+
+        if h0 == h1:
+            # folded edge (same behavior as with contract_edge)
+            if fp[h0] == h0:
+                # the vertex at h0 has degree one
+                vp[h0] = fp[h0] = -1
+            else:
+                h0_fp_prev = self.previous_in_face(h0)
+                h0_fp_next = self.next_in_face(h0)
+                assert h0 != h0_fp_prev
+                assert h0 != h0_fp_next
+                fp[h0_fp_prev] = h0_fp_next
+
+                h0_vp_prev = self.previous_at_vertex(h0)
+                h0_vp_next = self.next_at_vertex(h0)
+                assert h0 != h0_vp_prev
+                assert h0 != h0_vp_next
+                vp[h0_vp_prev] = h0_vp_next
+
+            vp[h0] = fp[h0] = -1
+
+        else:
+            # non-folded edge
+            h0_vp_prev = self.previous_at_vertex(h0)
+            if h0_vp_prev == h1:
+                h0_vp_prev = self.previous_at_vertex(h0_vp_prev)
+            h0_vp_next = self.next_at_vertex(h0)
+            if h0_vp_next == h1:
+                h0_vp_next = self.next_at_vertex(h0_vp_next)
+            h0_fp_prev = self.previous_in_face(h0)
+            h0_fp_next = self.next_in_face(h0)
+
+            h1_vp_prev = self.previous_at_vertex(h1)
+            if h1_vp_prev == h0:
+                h1_vp_prev = self.previous_at_vertex(h1_vp_prev)
+            h1_vp_next = self.next_at_vertex(h1)
+            if h1_vp_next == h0:
+                h1_vp_next = self.next_at_vertex(h1_vp_next)
+            h1_fp_prev = self.previous_in_face(h1)
+            h1_fp_next = self.next_in_face(h1)
+
+            if h0 != h0_vp_next:
+                vp[h0_vp_prev] = h0_vp_next
+            if h1 != h1_vp_next:
+                vp[h1_vp_prev] = h1_vp_next
+
+            if h0 != h0_fp_next:
+                if h1 != h1_fp_next:
+                    # faces at h0 and h1 have degree > 1
+                    fp[h0_fp_prev] = h1_fp_next
+                    fp[h1_fp_prev] = h0_fp_next
+                else:
+                    # face at h1 has degree 1 but not h0
+                    fp[h0_fp_prev] = h0_fp_next
+            else:
+                if h1 != h1_vp_next:
+                    # face at h0 has degree 1 but not h1
+                    fp[h1_fp_prev] = h1_fp_next
+
+            vp[h0] = vp[h1] = fp[h0] = fp[h1] = -1
+
+        while vp and vp[-2] == -1:
+            vp.pop()
+            vp.pop()
+            fp.pop()
+            fp.pop()
+
+    def add_edge(self, h0=-1, h1=-1, e=None, check=2):
+        r"""
+        Add an edge between the corners adjacent to the half-edges ``h0`` and ``h1``.
+
+        This operation is the inverse of :meth:`delete_edge` and dual to :meth:`insert_edge`.
+        See also :meth:`contract_edge`.
+
+        INPUT:
+
+        -- ``h0``: integer -- half-edge. If set to ``-1`` then the newly added edge is
+           attached to a new vertex
+
+        -- ``h1``: integer or ``None`` -- if ``None``, then insert a half-edge in ``h0``.
+           If set to ``-1`` then the half-edge is glued to itself.
+
+        -  `e``: integer -- an optional edge index for the newly created edge.
+
+        - ``check`` -- whether to check input consistency
+        """
+        if check:
+            self._assert_mutable()
+            h0 = self._check_half_edge_or_minus_one(h0)
+            if h1 is not None:
+                h1 = self._check_half_edge_or_minus_one(h1)
+
+        if e is None:
+            e = len(self._vp) // 2
+        else:
+            if not isinstance(e, numbers.Integral):
+                raise ValueError("e must be an integer")
+            e = int(e)
+            if 2 * e > len(self._vp):
+                raise NotImplementedError
+            if self._vp[2 * e] != -1:
+                raise ValueError(f"invalid edge e (={e}) already in use")
+
+        if 2 * e == len(self._vp):
+            # make extra space for the new edge
+            self._vp.append(-1)
+            self._vp.append(-1)
+            self._fp.append(-1)
+            self._fp.append(-1)
+
+        vp = self._vp
+        fp = self._fp
+
+        h0_fp_prev = fp.previous_in_face(h0)
+        h1_fp_prev = fp.previous_in_face(h1)
+
+        vp[2 * e] = vp[h0]
+        vp[h0] = 2 * e
+
+        vp[2 * e + 1] = vp[h1]
+        vp[h1] = 2 * e + 1
+
+        fp[h1_fp_prev] = 2 * e + 1
+        fp[2 * e + 1] = h0
+        fp[h0_fp_prev] = 2 * e
+        fp[2 * e] = h1
+
+    def insert_edge(self, h0, h1=None, e=None, check=2):
+        r"""
+        Add an edge.
+
+        This operation is the inverse of :meth:`contract_edge` and dual to
+        :meth:`add_edge`. See also :meth:`delete_edge`.
+        """
+        pass
 
     def flip_orientation(self, e, check=True):
         r"""
@@ -2008,4 +2264,5 @@ class OrientedMap:
 # - split_face
 # - add_edge(h1, h2=None, h=None): if h2=None => folded and h1=h2 => loop (h is the new name)
 # - glue(h1, h2)
+# - union(m1, m2, m3, ...): disjoint union
  

@@ -14,10 +14,10 @@ TODO:
   where each list is a slice content[bouds[i]:bounds[i+1]].
 """
 # ****************************************************************************
-#  This file is part of veerer
+#  This file is part of topsurf
 #
 #       Copyright (C) 2018 Mark Bell
-#                     2018-2023 Vincent Delecroix
+#                     2018-2026 Vincent Delecroix
 #                     2018 Saul Schleimer
 #
 #  This program is free software; you can redistribute it and/or
@@ -38,14 +38,9 @@ TODO:
 from cpython cimport array
 from math import log
 
-try:
-    import sage.all
-except ImportError:
-    from random import shuffle, randint
-    from topsurf.arith import lcm
-else:
-    from sage.misc.prandom import shuffle, randint
-    from sage.arith.functions import lcm
+import sage.all
+from sage.misc.prandom import shuffle, randint
+from sage.arith.functions import lcm
 
 
 cpdef Py_hash_t array_hash(int[:] a):
