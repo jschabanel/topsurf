@@ -201,7 +201,7 @@ def small_maps(folded=True):
     yield OrientedMap("(0,~1,1,~0)")
 
 
-def test_contract_edge():
+def test_insert_edge_contract_edge():
     from topsurf import OrientedMap
 
     for m in small_maps():
@@ -210,6 +210,33 @@ def test_contract_edge():
             mm.contract_edge(e)
             mm._check()
             assert mm.num_edges() == m.num_edges() - 1
+    
+    m = OrientedMap("", "", mutable=True)
+
+    m.insert_edge(-1, -1)
+    m._check()
+    assert m == OrientedMap("(0)(~0)", "(0,~0)")
+
+    m.insert_edge(-1, -2)
+    m._check()
+    assert m == OrientedMap("(0)(~0)(1,~1)", "(0,~0)(1)(~1)")
+
+    m.insert_edge(0, -1)
+    m.insert_edge(-1, 2)
+    m._check()
+    assert m == OrientedMap("(0)(~0,~2,2)(1,3,~3,~1)", "(0,2,~0)(1,~3)(~1)(~2)(3)")
+
+    m.insert_edge(0, 6)
+    m._check()
+    assert m == OrientedMap("(0)(~0,~2,2,~4,~3,~1,1,3,4)", "(0,4,2,~0)(1,~3)(~1)(~2)(3,~4)")
+
+    m.contract_edge(2)
+    m._check()
+    assert m == OrientedMap("(0)(~0,~4,~3,~1,1,3,4)", "(0,4,~0)(1,~3)(~1)(3,~4)")
+
+    m.contract_edge(0)
+    m._check()
+    assert m == OrientedMap("(1,3,4,~4,~3,~1)", "(1,~3)(~1)(3,~4)(4)")
 
 
 def test_add_edge_delete_edge():
