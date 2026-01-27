@@ -9,7 +9,9 @@ cell decomposition of an oriented surface.
 #
 #       Copyright (C) 2018 Mark Bell
 #                     2018-2026 Vincent Delecroix
+#                     2026 Oscar Fontaine
 #                     2024 Kai Fu
+#                     2026 Juliette Schabanel
 #                     2018 Saul Schleimer
 #
 #  This program is free software; you can redistribute it and/or
