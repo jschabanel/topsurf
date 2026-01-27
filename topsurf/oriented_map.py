@@ -37,7 +37,7 @@ from array import array
 from sage.structure.richcmp import op_LT, op_LE, op_EQ, op_NE, op_GT, op_GE, rich_to_bool
 
 from topsurf.permutation import (perm_init, perm_check, perm_cycles, perm_on_array, perm_on_edge_array,
-                          perm_invert, perm_conjugate, perm_cycle_string, perm_cycles_lengths,
+                          perm_invert, perm_conjugate, perm_conjugate_transposition_inplace, perm_cycle_string, perm_cycles_lengths,
                           perm_cycles_to_string, perm_on_list, perm_on_edge_list, perm_cycle_type,
                           perm_num_cycles, str_to_cycles, str_to_cycles_and_data, perm_compose, perm_from_base64_str,
                           uint_base64_str, uint_from_base64_str, perm_base64_str,
@@ -1836,10 +1836,8 @@ class OrientedMap:
             vp[2 * e + 1] = self._ep(h1)
             vp[fp[2 * e + 1]] = 2 * e
             vp[fp[2 * e]] = 2 * e + 1
-            
-        
 
-    def flip_orientation(self, e, check=True):
+    def reverse_orientation(self, e, check=True):
         r"""
         Change the orientation of the edge ``e``.
 
@@ -1848,31 +1846,32 @@ class OrientedMap:
             sage: from topsurf import OrientedMap
 
             sage: m = OrientedMap(fp="(0,1,2)(~0,~1,~2)", mutable=True)
-            sage: m.flip_orientation(0)
+            sage: m.reverse_orientation(0)
             sage: m
             OrientedMap("(0,2,~1,~0,~2,1)", "(0,~1,~2)(~0,1,2)")
-            sage: m.flip_orientation(1)
+            sage: m.reverse_orientation(1)
             sage: m
             OrientedMap("(0,2,1,~0,~2,~1)", "(0,1,~2)(~0,~1,2)")
-            sage: m.flip_orientation(2)
+            sage: m.reverse_orientation(2)
             sage: m
             OrientedMap("(0,~2,1,~0,2,~1)", "(0,1,2)(~0,~1,~2)")
 
             sage: m = OrientedMap(fp="(0,~5,4)(3,5,6)(1,2,~6)", mutable=True)
-            sage: m.flip_orientation(0)
+            sage: m.reverse_orientation(0)
             sage: m
             OrientedMap("(0,4,5,3,~6,2,1,6,~5)", "(0,~5,4)(1,2,~6)(3,5,6)")
-            sage: m.flip_orientation(5)
+            sage: m.reverse_orientation(5)
             sage: m
             OrientedMap("(0,4,~5,3,~6,2,1,6,5)", "(0,5,4)(1,2,~6)(3,~5,6)")
+            sage: m._check()
 
         One can alternatively use ``relabel`` (which would be slower in that
         situation)::
 
             sage: m = OrientedMap(fp="(0,~5,4)(1,2,~6)(3,5,6)", mutable=True)
             sage: m1 = m.copy()
-            sage: m1.flip_orientation(5)
-            sage: m1.flip_orientation(6)
+            sage: m1.reverse_orientation(5)
+            sage: m1.reverse_orientation(6)
             sage: m2 = m.copy()
             sage: m2.relabel("(5,~5)(6,~6)")
             sage: m1 == m2
@@ -1882,39 +1881,19 @@ class OrientedMap:
             self._assert_mutable()
             e = self._check_edge(e)
 
-        vp = self._vp
         ep = self._ep
-        fp = self._fp
-
         h = 2 * e
         H = self._ep(h)
         if h == H:
             return
 
-        # images/preimages by vp
-        h_vp = vp[h]
-        H_vp = vp[H]
-        h_vp_inv = fp[H]
-        H_vp_inv = fp[h]
-        assert vp[h_vp_inv] == h
-        assert vp[H_vp_inv] == H
+        h_vp_inv = self.previous_at_vertex(h)
+        H_vp_inv = self.previous_at_vertex(H)
+        h_fp_inv = self.previous_in_face(h)
+        H_fp_inv = self.previous_in_face(H)
 
-        # images/preimages by fp
-        h_fp = fp[h]
-        H_fp = fp[H]
-        h_fp_inv = ep(h_vp)
-        H_fp_inv = ep(H_vp)
-        assert fp[h_fp_inv] == h
-        assert fp[H_fp_inv] == H
-
-        fp[h_fp_inv] = H
-        fp[H_fp_inv] = h
-        vp[h_vp_inv] = H
-        vp[H_vp_inv] = h
-        fp[h] = H_fp
-        fp[H] = h_fp
-        vp[h] = H_vp
-        vp[H] = h_vp
+        perm_conjugate_transposition_inplace(self._vp, h, H, h_vp_inv, H_vp_inv)
+        perm_conjugate_transposition_inplace(self._fp, h, H, h_fp_inv, H_fp_inv)
 
     # TODO: if given as cycles, can we make it O(input size)?
     def relabel(self, p=None, check=True):
