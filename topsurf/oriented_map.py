@@ -439,8 +439,8 @@ class OrientedMap:
             sage: from topsurf import OrientedMap
             sage: m = OrientedMap(vp="(0,~2)(~0,3,1)(~1,~5,2)(~3,4)(~4,5)")
             sage: G, em = m.graph()
-            sage: pos = G.layout_planar(on_embedding=em, external_face=)
-            sage: G.plot(pos=, vertex_labels=False, edge_labels=True)
+            sage: pos = G.layout_planar(on_embedding=em, external_face=0)
+            sage: G.plot(pos=pos, vertex_labels=False, edge_labels=True)
         """
         # NOTE: sage graphs use *clockwise* order for the neighbors
         if self.has_folded_edge():
