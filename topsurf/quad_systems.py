@@ -420,13 +420,14 @@ class Geodesic:
         s = self._turn_sequence
         if len(geo) == 0 or len(geo) % 2 == 1:
             return
-        first_turn = Q.turn(geo[-1], geo[0])
+        first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
         
-        while firs_turn == 0 and geo: #spur
+        while first_turn == 0 and geo: #spur
             geo.pop()
             geo.popleft()
             turn_remove(s)
             turn_remove_left(s)
+            first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
 
         if first_turn == 1 and len(s) == 1 and s[0][0] == 2: # whole geodesic bracket
             geo.pop()
@@ -436,7 +437,7 @@ class Geodesic:
                 e1 = Q._ep(e)
                 l.append(fp[fp[e1]])
             geo.clear()
-            geo.expend(l)
+            geo.extend(l)
             s.append((d - 2, s[0][1] - 2))
             s.popleft()
             
@@ -448,7 +449,7 @@ class Geodesic:
                 e1 = Q._ep(e)
                 l.append(fp[fp[e1]])
             geo.clear()
-            geo.expend(l)
+            geo.extend(l)
             s.append((2, s[0][1] - 2))
             s.popleft()
 
@@ -457,7 +458,7 @@ class Geodesic:
             turn_remove_left(s)
             bracket_removal(Q, geo, s, True, 0, d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
@@ -469,7 +470,7 @@ class Geodesic:
             turn_remove_left(s)
             bracket_removal(Q, geo, s, True, s[-1][1], d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
@@ -481,7 +482,7 @@ class Geodesic:
             turn_remove_left(s)
             bracket_removal(Q, geo, s, False, 0, d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
@@ -493,7 +494,7 @@ class Geodesic:
             turn_remove_left(s)
             bracket_removal(Q, geo, s, False, s[-1][1], d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
@@ -505,7 +506,7 @@ class Geodesic:
             turn_remove(s)
             bracket_removal_left(Q, geo, s, True, 0, d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
@@ -517,7 +518,7 @@ class Geodesic:
             turn_remove(s)
             bracket_removal_left(Q, geo, s, True, s[-1][1], d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
@@ -529,7 +530,7 @@ class Geodesic:
             turn_remove(s)
             bracket_removal_left(Q, geo, s, False, 0, d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
@@ -541,7 +542,7 @@ class Geodesic:
             turn_remove(s)
             bracket_removal_left(Q, geo, s, False, s[-1][1], d)
             if geo:
-                first_turn = Q.turn(geo[-1], geo[0])
+                first_turn = self._quadsystem.turn(Q._ep(geo[-1]), geo[0])
                 while first_turn == 0 and geo:
                     geo.pop()
                     geo.popleft()
