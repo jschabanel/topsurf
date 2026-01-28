@@ -151,6 +151,78 @@ def tree_contraction(G, treecotree):
 
 
 
+def turn_remove(s):
+    r"""
+    Remove a turn at the end of s if there is one.
+    """
+    if s:
+        (t, num) = d.pop()
+        if num > 0:
+            d.append((t,num-1))
+
+def turn_add(s, turn, num):
+    r"""
+    Add num turns at the end of s.
+    """
+    if num<=0:
+        return
+    if len(s) == 0:
+        s.append((turn,num))
+    else:
+        if s[-1][0] == turn:
+            (a,b) = s.pop()
+            s.append((a, b + num))
+        else:
+            s.append((turn, num))
+
+def turn_modif(s, mod, d):
+    if len(s) == 0:
+        return
+    (t, n) = s.pop()
+    r = (t + mod) % d
+    if n > 1:
+        s.append((t, n-1))
+        s.append((r, 1))
+    else:
+        turn_add(s, r, 1)
+
+
+def bracket_removal(Q, geo, s, positive, length, d):
+    r"""
+    Remove a bracket of length ``length`` at the end of geo with turn sequence s.
+    """
+    fp=Q.face_permutation(copy=False)
+    if positive:
+        l = deque([])
+        for i in range(length + 1, 0, -1):
+            edge = geo[-i]
+            edge1 = Q._ep(edge)
+            l.append(fp[fp[edge1]])
+        for i in range(length + 2):
+            geo.pop()
+        geo = geo.extend(l)
+        s.pop()
+        if length != 0:
+            s.pop()
+        turn_modif(s, -1, d)
+        turn_add(s, d - 2, length)
+    else:
+        l=deque([])
+        for i in range(length + 1, 0, -1):
+            edge = fp[fp[geo[-i]]]
+            edge1 = Q._ep(edge)
+            l.append(edge1)
+        for _ in range(length + 2):
+            geo.pop()
+        geo = geo.extend(l)
+        s.pop()
+        if length!=0:
+            s.pop()
+        turn_modif(s, 1, d)
+        turn_add(s, 2, length)
+
+
+
 class QuadSystem:
 
     #TODO : Documentation
@@ -245,7 +317,7 @@ class QuadSystem:
 
     def turn(self, h1, h2):
         l1 = self._turn[h1]
-        l2 = self._turn[l2]
+        l2 = self._turn[h2]
         if l1 // (4 * self._genus) != l2 // (4 * self._genus):
             raise ValueError("The two half_edges does not belong to the same vertex")
         nl1 = l1 % (4 * self._genus)
@@ -288,7 +360,37 @@ class Geodesic:
             self._geodesic = deque(geo)
             self._turn_sequence = deque(turn)
                 
-                
+
+    def __eq__(self, other):
+        return (self._quadsystem == other._quadsystem) and (self._geodesic == other._geodesic)
+
+    def add_edge(self, e):
+
+        Q = self._quadsystem._quad
+        fp = Q.face_permutation(copy=False)
+        d = 4 * self._quadsystem._genus
+        if len(self._geodesic) == 0:
+            self._geodesic.append(e)
+        else:
+            pre = self._geodesic[-1]
+            newturn = self._quadsystem.turn(Q._ep(pre), e)
+            
+            if newturn == 0: #spur
+                self._geodesic.pop()
+                turn_remove(self._turn_sequence)
+            elif len(self._turn_sequence) >= 1 and newturn == 1 and self._turn_sequence[-1][0] == 1: # positive bracket of length one
+                bracket_removal(Q, self._geodesic, self._turn_sequence, True, 0, d)
+            elif len(self._turn_sequence) >= 2 and newturn == 1 and self._turn_sequence[-1][0] == 2 and self._turn_sequence[-2][0] == 1:
+                # positive bracket of length more than one
+                bracket_removal(Q, self._geodesic, self._turn_sequence, True, self._turn_sequence[-1][1], d)
+            elif len(self._turn_sequence) >= 1 and newturn == d - 1 and self._turn_sequence[-1][0] == d - 1:
+                bracket_removal(Q, self._geodesic, self._turn_sequence, False, 0, d)
+            elif len(self._turn_sequence) >= 2 and newturn == d - 1 and self._turn_sequence[-1][0] == d - 2 and self._turn_sequence[-2][0] == d - 1:
+                # positive bracket of length more than one
+                bracket_removal(Q, self._geodesic, self._turn_sequence, False, self._turn_sequence[-1][1], d)
+            else:
+                self._geodesic.append(e)
+                turn_add(self._turn_sequence, newturn, 1)
 
 
 
