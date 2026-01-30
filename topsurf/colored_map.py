@@ -31,9 +31,9 @@ class ColoredOrientedMap(OrientedMap):
     r"""
     INPUT:
         - ``ecolors`` -- ``None`` or a list or dictionnary of data so that ecolors[i] is the data associated to the edge (2i,2i+1).
-        - ``vcolors`` -- ``None`` or a dictionnary of data so that vcolors[h] is the data associated to the vertex incident to half edge half, and only one half edge incident to a given vertex is present.
+        - ``vcolors`` -- a dictionnary of data so that vcolors[h] is the data associated to the vertex incident to half edge h, and only one half edge incident to a given vertex is present. If the map is atomic (no edges), the color of the vertex can be specified in entry ``-1``.
     """
-    def __init__(self, vp=None, fp=None, vcolors=None, ecolors=None, mutable=False, check=True):
+    def __init__(self, vp=None, fp=None, vcolors={}, ecolors=None, mutable=False, check=True):
         OrientedMap.__init__(self, vp, fp, mutable, check)
 
         if ecolors is None:
@@ -49,13 +49,10 @@ class ColoredOrientedMap(OrientedMap):
             else:
                 raise TypeError("ecolors should be a list or dictionnary")
 
+        self._vertex_colors = {}
         if len(self._vp) == 0:
-            if vcolors is None:
-                self._vertex_colors = {-1: None}
-            else:
-                self._vertex_colors = {-1: vcolors.get(-1)}
+            self._vertex_colors = {-1: vcolors.get(-1)}
         else:
-            self._vertex_colors = {}
             for v in self.vertices():
                 col = None
                 for h in v:
@@ -195,7 +192,7 @@ class ColoredOrientedMap(OrientedMap):
         r"""
         Add an edge between the corners of ``h0`` and ``h1`` with color ``col``. 
         If ``h0``or ``h1`` is negative, then new vertices are created and their color can be specified in ``v0_color`` and ``v1_color``.
-        If self is atomic and ``v0_color``, the vertex inherits the color of the vertex.
+        If self is atomic and ``v0_color``is not provided, the vertex keeps its color.
 
         EXAMPLES::
 
