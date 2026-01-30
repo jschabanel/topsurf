@@ -49,8 +49,8 @@ def check_relabelling(arg, ne):
     r"""
     EXAMPLES::
 
-        sage: from veerer.constellation import check_relabelling
-        sage: from veerer.permutation import perm_cycle_string
+        sage: from topsurf.oriented_map import check_relabelling
+        sage: from topsurf.permutation import perm_cycle_string
         sage: p = check_relabelling("(0,1,2)", 3)
         sage: perm_cycle_string(p, edge_like=True)
         '(0,1,2)(~0,~1,~2)'
@@ -261,7 +261,7 @@ class OrientedMap:
     def _half_edge_string(self, e):
         return '~%d' % (e // 2) if e % 2 else '%d' % (e // 2)
 
-    def __str__(self, *args, **kwds):
+    def __str__(self):
         vp_cycles = perm_cycles(self._vp)
         vertices = perm_cycles_to_string(vp_cycles, edge_like=True)
         fp_cycles = perm_cycles(self._fp)
@@ -372,21 +372,21 @@ class OrientedMap:
 
         TESTS::
 
-            sage: from veerer import Triangulation
-            sage: Triangulation("(0,1,~1)")._check_half_edge(0)
+            sage: from topsurf import OrientedMap
+            sage: OrientedMap("(0,1,~1)")._check_half_edge(0)
             0
-            sage: Triangulation("(0,1,~1)")._check_half_edge(-4)
+            sage: OrientedMap("(0,1,~1)")._check_half_edge(-4)
             Traceback (most recent call last):
             ...
-            ValueError: half-edge number out of range h=-4
-            sage: Triangulation("(0,1,~1)")._check_half_edge(12)
+            ValueError: half-edge number out of range (=-4)
+            sage: OrientedMap("(0,1,~1)")._check_half_edge(12)
             Traceback (most recent call last):
             ...
-            ValueError: half-edge number out of range h=12
-            sage: Triangulation("(0,1,~1)")._check_half_edge(1)
+            ValueError: half-edge number out of range (=12)
+            sage: OrientedMap("(0,1,~1)")._check_half_edge(1)
             Traceback (most recent call last):
             ...
-            ValueError: invalid half-edge h=1; the underlying edges is folded
+            ValueError: invalid half-edge (=1); the underlying edge is folded
         """
         if not isinstance(h, numbers.Integral):
             raise TypeError(f"invalid half-edge {h} of type {type(h).__name__}")
@@ -427,34 +427,43 @@ class OrientedMap:
             raise ValueError(f"inactive edge e={e}")
         return e
 
-    # TODO: convention for external face?
-    def graph(self, oriented=False, subdivide=True):
+    def graph(self, oriented=False, subdivide=True, root=None):
         r"""
-        Return the sage graph and the embedding associated to this map.
+        Return the sage graph, the embedding and the root edge associated to this map.
 
         INPUT:
+
+        - ``oriented`` (boolean, default ``False``) -- whether to return a SageMath
+          ``Graph`` or ``DiGraph``
 
         - ``subdivide`` (boolean, default ``False``) -- if ``True`` then insert
           one vertex on each edge and two vertices on each loop so that the
           resulting graph is simple.
 
+        - ``root`` (``None`` or a valid half-edge) -- if specified, it should be
+          a half-edge that is used to identify the external face in planar drawings
+
         EXAMPLES::
 
             sage: from topsurf import OrientedMap
             sage: m = OrientedMap(vp="(0,~2)(~0,3,1)(~1,~5,2)(~3,4)(~4,5)")
-            sage: G, em = m.graph()
-            sage: pos = G.layout_planar(on_embedding=em, external_face=0)
+            sage: G, em, root = m.graph()
+            sage: pos = G.layout_planar(on_embedding=em, external_face=root)
             sage: G.plot(pos=pos, vertex_labels=False, edge_labels=True)
+            Graphics object consisting of ... graphics primitives
         """
         # NOTE: sage graphs use *clockwise* order for the neighbors
         if self.has_folded_edge():
             raise NotImplementedError
 
+        if root is None:
+            root = len(self._vp)-2
+
         vertices = self.vertices()
-        half_edge_to_vertex = [-1] * (2 * len(self._vp))
+        half_edge_start = [-1] * (2 * len(self._vp))
         for i, v in enumerate(vertices):
             for j in v:
-                half_edge_to_vertex[j] = i
+                half_edge_start[j] = i
 
         embedding = {}
 
@@ -467,14 +476,15 @@ class OrientedMap:
 
         edges = collections.defaultdict(list)
         for e in range(len(self._vp) // 2):
-            u = half_edge_to_vertex[2 * e]
-            v = half_edge_to_vertex[2 * e + 1]
+            u = half_edge_start[2 * e]
+            v = half_edge_start[2 * e + 1]
             if not oriented and v > u:
                 u, v = v, u
             edges[(u, v)].append(e)
 
-        half_edge_end = [half_edge_to_vertex[h ^ 1] for h in range(len(self._vp))]
+        half_edge_end = [half_edge_start[h ^ 1] for h in range(len(self._vp))]
 
+        edge_vertices=[None]*(len(self._vp)//2)
         if subdivide:
             loops = []
             multiple_edges = []
@@ -491,6 +501,7 @@ class OrientedMap:
                         embedding[w1] = [v, w0]
                         half_edge_end[2 * e] = w0
                         half_edge_end[2 * e + 1] = w1
+                        edge_vertices[e] = [u, w0, w1, u]
                 elif len(edge_list) > 1:
                     # subdivide in two
                     for e in edge_list:
@@ -500,54 +511,50 @@ class OrientedMap:
                         embedding[w] = [u, v]
                         half_edge_end[2 * e] = w
                         half_edge_end[2 * e + 1] = w
+                        edge_vertices[e] = [u, w, v]
                 else:
                     e, = edge_list
                     G.add_edge(u, v, e)
+                    edge_vertices[e] = [u, v]
         else:
             for e in range(0, len(self._vp) // 2):
-                G.add_edge(half_edge_to_vertex[2 * e], half_edge_to_vertex[2 * e + 1], e)
+                G.add_edge(half_edge_start[2 * e], half_edge_start[2 * e + 1], e)
+
+        root_edge = (half_edge_start[root], half_edge_end[root])
 
         for i, v in enumerate(vertices):
             embedding[i] = []
             for j in reversed(v):
                 embedding[i].append(half_edge_end[j])
 
-        return G, embedding
+        return G, embedding, root_edge, edge_vertices
 
-    def plot(self):
-        G, em = self.graph()
-        pos = G.layout_planar(on_embedding=em, external_face=0)
-        return G.plot(pos=pos, vertex_labels=False, edge_labels=True)
-
-    def to_string(self):
+    def plot(self, oriented=False, subdivide=True, root=None, edge_labels=True, vertex_colors=None, edge_colors=None):
         r"""
-        Serialize this oriented map as a string.
+        Plot the map.
 
-        EXAMPLES::
+        INPUT:
+            - ``oriented``: boolean specifying whether edge should be oriented.
+            - ``subdivide``: boolean specifying whether multiple edges and loop should be subdivided for pretty plotting.
+            - ``edge_labels``: boolean specifying whether to plot the labels of the edges.
+            - ``edge_colors``: dictionnary specifying the color to assign to each edge color.
+            - ``vertex_colors``: dictionnary specifying the color to assign to each vertex color.
 
-            sage: from veerer import Triangulation, VeeringTriangulation, StrebelGraph
-
-            sage: Triangulation("(0,1,2)(~0,~1,~2)").to_string()
-            '3_1___234501_000000'
-            sage: Triangulation("(0,1,2)", boundary="(~0:1)(~1:1,~2:1)").to_string()
-            '3_1___214503_010101'
-
-            sage: VeeringTriangulation("(0,1,2)", "RRB").to_string()
-            '3_1_1__2~4~0~_000000_112'
-
-            sage: StrebelGraph("(0,1,2)(~0,~1:1,~2:2)").to_string()
-            '3_1___234501_000102'
         """
-        data = [uint_base64_str(self._ne),
-                uint_base64_str(len(self._half_edges_data)),
-                uint_base64_str(len(self._edges_data)),
-                uint_base64_str(self._mutable),
-                perm_base64_str(self._fp)]
-        for l in self._half_edges_data:
-            data.append(perm_base64_str(l))
-        for l in self._edges_data:
-            data.append(perm_base64_str(l))
-        return '_'.join(data)
+        G, em, r, edge_list = self.graph(oriented=oriented, subdivide=subdivide, root=root)
+        pos = G.layout_planar(on_embedding=em, external_face=r)
+        if vertex_colors is None:
+            vertex_colors={'red':list(range(self.num_vertices()))}
+        vertex_colors['#C0C0C0'] = list(range(self.num_vertices(), G.order()))
+        if edge_colors is None:
+            edge_cols = None
+        else:
+            edge_cols = collections.defaultdict(list)
+            for c, edges in edge_colors.items():
+                for e in edges:
+                    edge_cols[c].extend(edge_list[e][i:i+2] for i in range(len(edge_list[e])-1))
+
+        return G.plot(pos=pos, vertex_labels=False, edge_labels=edge_labels, vertex_colors=vertex_colors, edge_colors=edge_cols)
 
     def __eq__(self, other):
         return self._vp == other._vp
@@ -560,8 +567,8 @@ class OrientedMap:
         TESTS::
 
             sage: import itertools
-            sage: from veerer import Triangulation
-            sage: ts = [Triangulation("(0,1,2)"), Triangulation("(0:1,1:1,2:1)"), Triangulation("(0:1,1:1,2:2)"), Triangulation("(0,1,2)(~0,~1,~2)"), Triangulation("(0,1,2)(~0,~1,~2)"), Triangulation("(0,~0,1)(~1,2,~2)")]
+            sage: from topsurf import OrientedMap
+            sage: ts = [OrientedMap(fp="(0,1,2)"), OrientedMap(fp="(0,1,2)(~0,~1,~2)"), OrientedMap(fp="(0,1,2)(~0,~2,~1)"), OrientedMap(fp="(0,~0,1)(~1,2,~2)")]
             sage: for t1, t2 in itertools.product(ts, repeat=2):
             ....:     c1 = t1._cmp_(t2)
             ....:     c2 = t2._cmp_(t1)
@@ -571,15 +578,7 @@ class OrientedMap:
         if type(self) is not type(other):
             raise TypeError("can not compare {} with {}".format(type(self).__name__, type(other).__name__))
 
-        c = (self._ne > other._ne) - (self._ne < other._ne)
-        if c:
-            return c
-
-        c = (self._fp > other._fp) - (self._fp < other._fp)
-        if c:
-            return c
-
-        return c
+        return (self._vp > other._vp) - (self._vp < other._vp)
 
     def _richcmp_(self, other, op):
         r"""
@@ -588,27 +587,20 @@ class OrientedMap:
         EXAMPLES::
 
             sage: import itertools
-            sage: from veerer import Triangulation, VeeringTriangulation
+            sage: from topsurf import OrientedMap
 
-            sage: ts = [Triangulation("(0,1,2)"), Triangulation("(0:1,1:1,2:1)"), Triangulation("(0:1,1:1,2:2)"), Triangulation("(0,1,2)(~0,~1,~2)"), Triangulation("(0,1,2)(~0,~1,~2)"), Triangulation("(0,~0,1)(~1,2,~2)")]
-            sage: for t1, t2 in itertools.product(ts, repeat=2):
-            ....:     if t1 == t2:
-            ....:         assert (t1 <= t2)
-            ....:         assert (t1 >= t2)
-            ....:         assert not (t1 < t2)
-            ....:         assert not (t1 > t2)
+            sage: ts = [OrientedMap("(0,1,2)"), OrientedMap("(0,1,2)(~0,~1,~2)"), OrientedMap("(0,~0,1)(~1,2,~2)")]
+            sage: for m1, m2 in itertools.product(ts, repeat=2):
+            ....:     if m1 == m2:
+            ....:         assert (m1 <= m2)
+            ....:         assert (m1 >= m2)
+            ....:         assert not (m1 < m2)
+            ....:         assert not (m1 > m2)
             ....:     else:
-            ....:         assert (t1 < t2) + (t2 < t1) == 1
-            ....:         assert (t1 > t2) + (t2 > t1) == 1
-            ....:         assert (t1 < t2) == (t1 <= t2)
-            ....:         assert (t1 > t2) == (t1 >= t2)
-
-            sage: vt0 = VeeringTriangulation("(0:1)(~0:1,1:1,2:1)(~1:1,~2:1,3:1)(~3:1)", "RRBR")
-            sage: vt1 = VeeringTriangulation("(0:1)(~0:1,1:1,2:1)(~1:1,~2:1,3:1)(~3:1)", "BRRB")
-            sage: (vt0 < vt1) + (vt0 == vt1) + (vt0 > vt1)
-            1
-            sage: (vt1 < vt0) + (vt1 == vt0) + (vt1 > vt0)
-            1
+            ....:         assert (m1 < m2) + (m2 < m1) == 1
+            ....:         assert (m1 > m2) + (m2 > m1) == 1
+            ....:         assert (m1 < m2) == (m1 <= m2)
+            ....:         assert (m1 > m2) == (m1 >= m2)
         """
         if type(self) is not type(other):
             raise TypeError("can not compare {} with {}".format(type(self).__name__, type(other).__name__))
@@ -948,7 +940,7 @@ class OrientedMap:
         """
         return sum(self._vp[i] != -1 or self._vp[i + 1] != -1 for i in range(0, len(self._vp), 2))
 
-    def edges(self):
+    def edge_indices(self):
         r"""
         Return the list of edge indices.
 
@@ -956,12 +948,12 @@ class OrientedMap:
 
             sage: from topsurf import OrientedMap
 
-            sage: OrientedMap(fp="(0,1,2)(3,4,5)(~0,~3,6)").edges()
-            sage: OrientedMap(fp="(1,2)(3,5)(~3,6)").edges()
+            sage: OrientedMap(fp="(0,1,2)(3,4,5)(~0,~3,6)").edge_indices()
+            [0, 1, 2, 3, 4, 5, 6]
+            sage: OrientedMap(fp="(1,2)(3,5)(~3,6)").edge_indices()
+            [1, 2, 3, 5, 6]
         """
-        for e in range(len(self._vp) // 2):
-            if self._vp[2 * e] != -1:
-                yield e
+        return [e for e in range(len(self._vp) // 2) if self._vp[2 * e] != -1]
 
     def vertices(self):
         r"""
@@ -974,11 +966,26 @@ class OrientedMap:
             sage: m = OrientedMap(fp="(0,1,2)(3,4,5)(~0,~3,6)")
             sage: m.vertices()
             [[0, 4, 2, 1, 12, 6, 10, 8, 7]]
+
+            sage: OrientedMap("").vertices()
+            [[]]
         """
+        if not self._vp:
+            return [[]]
         return perm_cycles(self._vp, True)
 
     def vertex_profile(self):
-        return sorted(perm_cycles_lengths(self._vp), reverse=True)
+        r"""
+        EXAMPLES::
+
+            sage: from topsurf import OrientedMap
+
+            sage: OrientedMap("(0,3)(~0,1,~3,~1)").vertex_profile()
+            [2, 4]
+            sage: OrientedMap("","").vertex_profile()
+            [0]
+        """
+        return [len(v) for v in self.vertices()]
 
     def num_vertices(self):
         r"""
@@ -992,7 +999,12 @@ class OrientedMap:
             1
             sage: OrientedMap(fp="(3,~3)").num_vertices()
             2
+
+            sage: OrientedMap("").num_vertices()
+            1
         """
+        if not self._vp:
+            return 1
         return perm_num_cycles(self._vp)
 
     def faces(self):
@@ -1006,11 +1018,28 @@ class OrientedMap:
             sage: m = OrientedMap(fp="(0,1,2)(3,4,5)(~3,6)")
             sage: m.faces()
             [[0, 2, 4], [6, 8, 10], [7, 12]]
+
+            sage: OrientedMap("").faces()
+            [[]]
         """
+        if not self._vp:
+            return [[]]
         return perm_cycles(self._fp, True)
 
     def face_profile(self):
-        return sorted(perm_cycles_lengths(self._fp), reverse=True)
+        r"""
+        Return the face degrees.
+
+        EXAMPLES::
+
+            sage: from topsurf import OrientedMap
+
+            sage: OrientedMap("(0,3)(~0,1,~3,~1)").face_profile()
+            [6]
+            sage: OrientedMap("").face_profile()
+            [0]
+        """
+        return [len(f) for f in self.faces()]
 
     def num_faces(self):
         r"""
@@ -1024,7 +1053,11 @@ class OrientedMap:
             3
             sage: OrientedMap(fp="(2,~2)").num_faces()
             1
+            sage: OrientedMap("").num_faces()
+            1
         """
+        if not self._vp:
+            return 1
         return perm_num_cycles(self._fp)
 
     def vertex_degree(self, h, check=True):
@@ -1043,6 +1076,31 @@ class OrientedMap:
             self._check_half_edge(h)
         return perm_orbit_size(self._vp, h)
 
+    def vertex_turn(self, h0, h1):
+        r"""
+        Return the number of turns from h0 to h1 around a vertex
+
+        EXAMPLES:
+
+            sage: from topsurf import OrientedMap
+
+            sage: m = OrientedMap(vp=[[0, 2, 4, 6], [5, 8, 10, 12], [3, 11, 13, 7, 1, 9]])
+            sage: m.vertex_turn(3, 7)
+            3
+        """
+
+        vp = self.vertex_permutation(copy=False)
+        if h0 == h1:
+            return 0
+        current = vp[h0]
+        turn = 1
+        while current != h0 and current != h1:
+            turn += 1
+            current = vp[current]
+        if current == h0:
+            raise ValueError("The half-edge {} does not belong to the same vertex than the half-edge {}.".format(h0, h1))
+        return turn
+
     def face_degree(self, h, check=True):
         r"""
         Return the degree of the face incident to the half-edge ``h``.
@@ -1058,6 +1116,31 @@ class OrientedMap:
         if check:
             self._check_half_edge(h)
         return perm_orbit_size(self._fp, h)
+
+    def face_turn(self, h0, h1):
+        r"""
+        Return the number of turns from h0 to h1 around a face
+
+        EXAMPLES:
+
+            sage: from topsurf import OrientedMap
+
+            sage: m = OrientedMap(vp=[[0, 2, 4, 6], [5, 8, 10, 12], [3, 11, 13, 7, 1, 9]])
+            sage: m.face_turn(0, 8)
+            5
+        """
+
+        fp = self.face_permutation(copy=False)
+        if h0 == h1:
+            return 0
+        current = fp[h0]
+        turn = 1
+        while current != h0 and current != h1:
+            turn += 1
+            current = fp[current]
+        if current == h0:
+            raise ValueError("The half-edge {} does not belong to the same face than the half-edge {}.".format(h0, h1))
+        return turn
 
     def is_connected(self):
         r"""
@@ -1215,8 +1298,7 @@ class OrientedMap:
 
         A torus::
 
-            sage: m = OrientedMap(fp="(0,1,2)(~0,~1,~2)")
-            sage: m.euler_characteristic()
+            sage: OrientedMap(fp="(0,1,2)(~0,~1,~2)").euler_characteristic()
             0
 
         A genus 2 surface::
@@ -1225,10 +1307,10 @@ class OrientedMap:
             sage: m.euler_characteristic()
             -2
 
-        A cylinder::
+        The empty map is a sphere::
 
-            sage: m.euler_characteristic()
-            0
+            sage: OrientedMap("").euler_characteristic()
+            2
         """
         return self.num_faces() - self.num_edges() + (self.num_vertices() + self.num_folded_edges())
 
@@ -1280,7 +1362,7 @@ class OrientedMap:
     #############
 
     # TODO: delete and use the more general relabel (with list of cycles)
-    def swap(self, h0, h1, check=2):
+    #def swap(self, h0, h1, check=2):
         r"""
          Modify the map by multiplying the vertex and face permutations
          by the transposition ``(h0, h1)`` respectively on left and right.
@@ -1313,7 +1395,7 @@ class OrientedMap:
             sage: m
             OrientedMap("(1)(3)(~3)", "(1)(3,~3)")
         """
-        if check >= 1:
+        """if check >= 1:
             self._assert_mutable()
             h0 = self._check_half_edge(h0)
             h1 = self._check_half_edge(h1)
@@ -1325,7 +1407,7 @@ class OrientedMap:
         fp1_pre = self._ep(vp[h1])
 
         vp[h0], vp[h1] = vp[h1], vp[h0]
-        fp[fp0_pre], fp[fp1_pre] = fp[fp1_pre], fp[fp0_pre]
+        fp[fp0_pre], fp[fp1_pre] = fp[fp1_pre], fp[fp0_pre]"""
 
     def contract_edge(self, e, check=2):
         r"""
@@ -1695,7 +1777,7 @@ class OrientedMap:
         elif h1 < 0:
             # edge attached only at h0
             h0_fp_prev = self.previous_in_face(h0)
-            
+
             vp[2 * e + 1] = 2 * e + 1
             vp[2 * e] = vp[h0]
             vp[h0] = 2 * e
@@ -1739,13 +1821,13 @@ class OrientedMap:
         :meth:`add_edge`. See also :meth:`delete_edge`.
 
         EXAMPLES::
-        
+
             sage: from topsurf import OrientedMap
             sage: m = OrientedMap(fp="(0,1,~0,~1)", mutable=True)
             sage: m.insert_edge(0, 1)
             sage: m
             OrientedMap("(0,1,2,~0,~1,~2)", "(0,2,~1)(~0,~2,1)")
-            
+
             sage: G = OrientedMap(vp = [[0, 2], [1, 4], [3, 5]], mutable=True)
             sage: G_dual = G.dual()
             sage: G.add_edge(0, 4)
@@ -1815,7 +1897,7 @@ class OrientedMap:
             vp[2 * e] = self._ep(h0)
             vp[2 * e + 1] = 2 * e
             vp[fp[2 * e]] = 2 * e + 1
-            
+
         elif h0 == h1:
             # insert an edge with a vertex after h0
             fp[2 * e] = 2 * e + 1
@@ -2582,7 +2664,7 @@ class OrientedMap:
 
     def dual(self, mutable=None, check=True):
         r"""
-        Return the dual map of self. 
+        Return the dual map of self.
 
         EXAMPLES::
 
@@ -2592,7 +2674,7 @@ class OrientedMap:
             OrientedMap("(0,~0,1,~1)", "(0)(~0,~1)(1)")
             sage: G.dual()
             OrientedMap("(0,1)(~0)(~1)", "(0,~0,1,~1)")
-            
+
             sage: H = OrientedMap(vp=[[0,2,1,3]])
             sage: H.dual()
             OrientedMap("(0,1,~0,~1)", "(0,1,~0,~1)")
@@ -2606,7 +2688,7 @@ class OrientedMap:
             OrientedMap("(0,1,~0)", "(0,1)(~0)")
 
         Applying four times the dual function return the same map (with same labels)::
-        
+
             sage: G0 = OrientedMap(vp=[[0,1,2,3]])
             sage: G1 = G0.dual()
             sage: G2 = G1.dual()
@@ -2647,7 +2729,6 @@ class OrientedMap:
             sage: J
             OrientedMap("(1)(~1)", "(1,~1)")
         """
-        
         if check:
             self._assert_mutable()
             self._check_half_edge(h)
@@ -2666,7 +2747,7 @@ class OrientedMap:
         oh1 = self._ep(h1)
         oh2 = self._ep(h2)
         oh3 = self._ep(h3)
-        
+
         self._vp[h] = self._vp[oh3] if self._vp[oh3] != oh3 else h
         self._vp[h1] = self._vp[oh2] if self._vp[oh2] != oh2 else h1
         if h3 != oh:
@@ -2677,7 +2758,7 @@ class OrientedMap:
         self._vp[oh2] = -1
         self._vp[h2] = -1
         self._vp[h3] = -1
-        
+
         self._fp[oh] = self._fp[h3]
         self._fp[oh1] = self._fp[h2]
         self._fp[self._ep(self._vp[h])] = h
@@ -2689,7 +2770,7 @@ class OrientedMap:
 
         remove_trailing_minus_ones(self._fp)
         remove_trailing_minus_ones(self._vp)
-        
+
     def disjoint_union(self, *others, check=True):
         r"""
         Add a copy of others in self. The labels of the half edges of others will be shifted by the sizes of the previous maps.
@@ -2710,14 +2791,14 @@ class OrientedMap:
             self._check()
             for m in others:
                 m._check()
-        
+
         for m in others:
             n = len(self._vp)
             for h in range(len(m._vp)):
                 self._vp.append(m._vp[h]+n)
                 self._fp.append(m._fp[h]+n)
 
-    
+
     def merge_vertices(self, *corners, check=True):
         r"""
         Merges the corners in corners.
@@ -2809,7 +2890,6 @@ class OrientedMap:
         if current == h0:
             raise ValueError("The half-edge {} is not on the same vertex as the half-edge {}.".format(f,e))
         return turn
-        
 
 # - relabel: keep combinatorics but change labellings
 # - slide or half_edge_slide (possibly flip as a shortcut)
@@ -2820,4 +2900,4 @@ class OrientedMap:
 # - add_edge(h1, h2=None, h=None): if h2=None => folded and h1=h2 => loop (h is the new name)
 # - glue(h1, h2)
 # - union(m1, m2, m3, ...): disjoint union
- 
+
